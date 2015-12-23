@@ -6,6 +6,32 @@
     <title>TrustViz Model</title>
 
     <style>
+	html, body {
+    /*height: 100%;*/
+	}
+	  
+	div.container {
+	  /*height: 100%;*/
+	  overflow: hidden;
+	}
+
+	div.ctrl {
+    width: 180px;
+	height: 100%;
+    float: left;
+    /*background: #aafed6;*/
+	}
+
+	div.viz {
+    float: none; /* not needed, just for clarification */
+    /*background: #e8f6fe; */
+    /* the next props are meant to keep this block independent from the other floated one */
+    width: auto;
+	/*height: 100%;*/
+    overflow: hidden;
+	}​​
+	  
+	  
 	.node circle {
 	  fill: steelblue;
 	  stroke: steelblue;
@@ -34,6 +60,20 @@
 	  border: 0px;      
 	  border-radius: 8px;           
 	  pointer-events: none;         
+	  z-index: 50;
+	}
+	
+	div.setData {   
+	  position: absolute;
+      text-align: left;
+	  /*width: 160px;  */
+	  height: 16px;                 
+	  padding: 4px;             
+	  font: 12px sans-serif;        
+	  background: lightsteelblue;   
+	  border: 0px;      
+	  border-radius: 8px;     
+	  z-index: 100;      
 	}
 	
     </style>
@@ -41,477 +81,44 @@
   </head>
 
   <body>
-
+	<div class="container" id="container-div">
+	  <div class="ctrl">
+	 <!-- <button type="button">Load</button> -->
+	 <input type="file" id="file-input"/>
+	  </div>
+	  <div class="viz" id="viz-div">
+	  </div>
+	</div>
+  
 <!-- load the d3.js library -->	
 <script src="public/javascripts/d3.v3.min.js"></script>
-	
+
 <script>
-var actors = {
-	"A":1,
-	"B":1,
-	"CSP":0.5,
-	"IdP":1
+function readModelFile(e) {
+  var file = e.target.files[0];
+  if (!file) {
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var contents = e.target.result;
+	reloadTrustModel(JSON.parse(contents))
+  };
+  reader.readAsText(file);
 }
 
-var tls =
-[{"name": "tls_1","value": 2048},
-{"name": "tls_2","value": 2048},
-{"name": "tls_3","value": 1024},
-{"name": "tls_4","value": 2048}]
-var encr = {"name": "encr","value": 1024}
-var factor = 
-[{"name": "factor","value": 512},
-{"name": "factor","value": 128}]
+//function displayContents(contents) {
+//  var element = document.getElementById('file-content');
+//  element.innerHTML = contents;
+//}
 
-var confBCSP =
-	{
-		"name": "confBCSP",
-		"altname": "conf",
-		"X": "B",
-		"Y": "CSP",
-		"children": [tls[0]]
-	}
-
-var confCSPA =
-	{
-		"name": "confCSPA",
-		"altname": "conf",
-		"X": "CSP",
-		"Y": "A",
-		"children": [tls[1]]
-	}
-
-var intAIdP =
-	{
-		"name": "intAIdP",
-		"altname": "int",
-		"X": "A",
-		"Y": "IdP",
-		"op": "MIN",
-		"children": [tls[2]]
-	}
-
-var confSigBA =
-	{
-		"name": "confSigBA",
-		"altname": "confSig",
-		"X": "B",
-		"Y": "A",
-		"op": "MIN",
-		"children": [confBCSP, confCSPA]
-	}
-
-var confIdPB =
-	{
-		"name": "confIdPB",
-		"altname": "conf",
-		"X": "IdP",
-		"Y": "B",
-		"children": [tls[3]]
-	}
-
-var VERIFY = 
-	{
-		"name": "VERIFY",
-		"op": "MIN",
-		"children": [intAIdP]
-	}
-
-var SEND = 
-	{
-		"name": "SEND",
-		"op": "MIN",
-		"children": [confIdPB, confSigBA]
-	}
-
-var authIdPB = 
-	{
-		"name": "authIdPB",
-		"altname": "auth",
-		"X": "IdP",
-		"Y": "B",
-		"op": "SUM",
-		"children": [factor[0],factor[1]]
-	}
-
-var authAB =
-	{
-		"name": "authAB",
-		"altname": "auth",
-		"X": "A",
-		"Y": "B",
-		"op": "MIN",
-		"children": [authIdPB, SEND, VERIFY]
-	}
-
-var srtpAB =
-	{
-		"name": "SRTPAB",
-		"altname": "srtp",
-		"op": "null",
-		"children": [encr]
-	}
-
-var dtlssrtpAB =
-	{
-		"name": "DTLS-SRTPAB",
-		"altname": "dtls-srtp",
-		"op": "null",
-		"aux_children": [authAB]
-	}
-
-var confAB =
-	{
-		"name": "confAB",
-		"altname": "conf",
-		"X": "A",
-		"Y": "B",
-		"op": "MIN",
-		"children": [dtlssrtpAB, srtpAB]
-	}
-
-	var trustModel = [
-	{
-		"name": "TRUST MODEL",
-		"op": "AVG",
-		"children": [confAB, authAB]
-	}
-]
-
-// ************** Generate the tree diagram	 *****************
-var margin = {top: 20, right: 120, bottom: 20, left: 120},
-	width = 1000 - margin.right - margin.left,
-	height = 500 - margin.top - margin.bottom;
-	
-var i = 0;
-var tree = d3.layout.tree()
-.size([width, height]); //Reversed for vertical
-var diagonal = d3.svg.diagonal()
-	.projection(function(d) { return [d.x, d.y]; });
-var svg = d3.select("body").append("svg")
-	.attr("width", width + margin.right + margin.left)
-	.attr("height", height + margin.top + margin.bottom)
-  .append("g")
+document.getElementById('file-input')
+  .addEventListener('change', readModelFile, false);
 	
 	
-var rOperator = 6,
-	vMax = 1,
-	vPMax = 1,
-	rBase = 20,
-	depth = 90
-
-// VALUE TOOLTIP
-var div = d3.select("body").append("div")   
-    .attr("class", "tooltip")               
-    .style("opacity", 0);
-
-root = trustModel[0];
-
-updateTrust(trustModel[0], 0)
-
-update(root);
-
-svg.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
-
-function update(source) {
-  // Compute the new tree layout.
-  var nodes = tree.nodes(root).reverse(),
-	  links = tree.links(nodes);
-  // Normalize for fixed-depth.
-  nodes.forEach(function(d) { d.y = d.depth * depth; });
-  // Declare the nodes…
-  var node = svg.selectAll("g.node")
-	  .data(nodes, function(d) { return d.id || (d.id = ++i); });
-  // Enter the nodes.
-  var nodeEnter = node.enter().append("g")
-	  .attr("class", "node")  
-	  .attr("transform", function(d) {
-	  	return "translate(" + d.x + "," + d.y + ")"; })  
-// SECURITY CIRCLE
-  nodeEnter.append("circle")
-	  .attr("r", function(d){
-		  d.rNorm = (d.value/vMax) * rBase 
-		  return d.rNorm
-	  })
-	  .style("fill", function(d){
-		  if(d.children == undefined && d.aux_children == undefined) return "#32CD32"
-		  else return "#4682B4"
-	  })
-	  .style("stroke", function(d){
-		  if(d.children == undefined && d.aux_children == undefined) return "#32CD32"
-		  else return "#4682B4"
-	  })
-	  .on("mouseover", function(d) {      
-            div.transition()        
-                .duration(200)      
-                .style("opacity", .9)
-            div.html(d.value + " bits")
-            	.style("left", d.x + Math.sqrt((d.rNorm*d.rNorm)/2)+ 2* rOperator + margin.left + 2 +"px")     
-            	.style("top", d.y + Math.sqrt((d.rNorm*d.rNorm)/2) + margin.top +"px")      
-      })   
-      .on("mouseout", function(d) {       
-            div.transition()        
-                .duration(500)      
-                .style("opacity", 0);   
-      })
-// OPERATOR CIRCLE
-  var trans = Math.sqrt((rOperator*rOperator)/6)
-  nodeEnter.append("circle")
-	  .filter(function(d){ return (d.op !== "null" && d.op !== undefined)})
-	  .attr("r", rOperator)
-	  .style("fill", "#FFFFFF")
-	  .style("stroke", "#000000")
-	  .style("stroke-width", "2px")
-	  .attr("transform", translateOpNode);
-//AVERAGE		  
-  nodeEnter.append("line")
-	      .filter(function(d){ return d.op === "AVG" })
-	      .attr("x1", -trans)
-	      .attr("y1", trans)
-	      .attr("x2", trans)
-	      .attr("y2", -trans)
-	  .style("fill", function(d){
-		  if(d.children == undefined) return "#FFFFFF"
-		  else return "#FFFFFF"
-	  })
-	  .style("stroke-width", "2px")
-	  .style("stroke", function(d){
-		  if(d.children == undefined) return "#000000"
-		  else return "#000000"
-	  })
-	  .attr("transform", translateOpNode);
-//MIN		  
-  nodeEnter.append("line")
-	      .filter(function(d){ return d.op === "MIN" })
-	      .attr("x1", - rOperator/2)
-	      .attr("y1", 0)
-	      .attr("x2", + rOperator/2)
-	      .attr("y2", 0)
-	  .style("fill", function(d){
-		  if(d.children == undefined) return "#FFFFFF"
-		  else return "#FFFFFF"
-	  })
-	  .style("stroke-width", "2px")
-	  .style("stroke", function(d){
-		  if(d.children == undefined) return "#000000"
-		  else return "#000000"
-	  })
-	  .attr("transform", translateOpNode);
-//SUM 1/2		  
-  nodeEnter.append("line")
-	      .filter(function(d){ return d.op === "SUM" })
-	      .attr("x1", - rOperator/2)
-	      .attr("y1", 0)
-	      .attr("x2", + rOperator/2)
-	      .attr("y2", 0)
-	  .style("fill", function(d){
-		  if(d.children == undefined) return "#FFFFFF"
-		  else return "#FFFFFF"
-	  })
-	  .style("stroke-width", "2px")
-	  .style("stroke", function(d){
-		  if(d.children == undefined) return "#000000"
-		  else return "#000000"
-	  })
-	  .attr("transform", translateOpNode);
-//SUM 2/2	  
-  nodeEnter.append("line")
-	      .filter(function(d){ return d.op === "SUM" })
-	      .attr("x1", 0)
-	      .attr("y1", - rOperator/2)
-	      .attr("x2", 0)
-	      .attr("y2", + rOperator/2)
-	  .style("fill", function(d){
-		  if(d.children == undefined) return "#FFFFFF"
-		  else return "#FFFFFF"
-	  })
-	  .style("stroke-width", "2px")
-	  .style("stroke", function(d){
-		  if(d.children == undefined) return "#000000"
-		  else return "#000000"
-	  })
-	  .attr("transform", translateOpNode);
-// NODE TITLE
-  nodeEnter.append("text")
-	  .attr("x", 0)
-	  //.attr("x", function(d) { 
-	  //	  return d.children || d._children ? -13 : 13; })
-	  .attr("dy", function(d){ return - d.rNorm -5})
-	  .attr("text-anchor", "middle")
-	  //.attr("text-anchor", function(d) { 
-	  //	  return d.children || d._children ? "end" : "start"; })
-	  .text(function(d) { 
-		  if(d.altname == undefined){
-		  	return (d.name)
-		  } else {
-			  if(d.X == undefined){
-			  	  return (d.altname)
-			  } else {
-				  return (d.altname+"("+d.X+","+d.Y+")")
-			  }
-		  }})
-	  .style("fill-opacity", 1)
-// NODE VALUE	  
-//  nodeEnter.append("text")
-//      .text(function(d) { return d.value; })
-//	  .attr("dy", rOperator)
-//	  .attr("transform", translateValue)
-//      .style("visibility", "hidden")
-		  
-		  
-  // Declare the links…
-  var link = svg.selectAll("path.link")
-	  .data(links, function(d) { return d.target.id; });
-  // Enter the links.
-  link.enter().insert("path", "g")
-	  .attr("class", "link")
-	  .attr("d", diagonal);
-	  
-  //auxLink()
-}
-
-function updateTrust(node, blue){
-	//Leaf
-	if(node.children == undefined && node.aux_children == undefined){
-		if(node.value == undefined){
-			node.value = 0
-			return 0
-		} else {
-			return node.value
-		}
-	}
-	//Node
-	//Blue means Already updated
-	if(node.blue == blue){
-		console.log("red "+node.name)
-		return node.value
-	}
-		
-	//else red (not yet updated)
-	//set to blue and update
-	node.blue = blue
-	switch(node.op){
-	case "MIN":
-		node.value = -1
-		node.children.forEach(MIN, node)
-		if(node.aux_children)
-			node.aux_children.forEach(MIN, node)
-		break;
-	case "SUM":
-		node.value = 0
-		node.children.forEach(SUM, node)
-		if(node.aux_children){
-			node.aux_children.forEach(SUM, node)
-		}
-		break;
-	case "AVG":
-		node.value = 0
-		node.children.forEach(SUM, node)
-		var num = node.children.length
-		if(node.aux_children){
-			node.aux_children.forEach(SUM, node)
-			num += node.aux_children.length
-		}
-		node.value = node.value/num
-		break;
-	default:
-		//test if only one child
-		var undef = "undefined"
-		
-		if(typeof node.aux_children === undef){
-			if(node.children.length == 1){
-				updateTrust(node.children[0], blue)
-				node.value = node.children[0].value
-			} else {
-				alert("Error: no operator set for node "+node.name+"\n "+ node)
-			}
-		} else if(typeof node.children === undef && node.aux_children.length == 1){
-				updateTrust(node.aux_children[0], blue)
-				node.value = node.aux_children[0].value
-		} else if(node.aux_children.length + node.children.length == 1){
-			alert("TODO: children and aux == 1")
-		} else {
-			alert("Error: no operator set for node "+node.name+"\n "+ node)
-		}
-		break;
-	}
-	
-//	if(node.X == undefined && node.Y == undefined){
-//		node.pValue = node.value
-//		node.
-//	} else if(node.X == undefined && node.Y != undefined){
-//		node.
-//	} else if(node.X != undefined && node.Y == undefined){
-//		
-//	} else {
-//		
-//	}
-	if(node.value>vMax) vMax = node.value
-	return node.value
-}
-
-function SUM(child, index, array){
-	updateTrust(child, this.blue)
-	this.value += child.value
-}
-function MIN(child, index, array){
-	updateTrust(child, this.blue);
-	if(this.value == -1) {
-		this.value = child.value
-	} else if (this.value > child.value){
-		this.value = child.value
-	}
-}
-
-function auxLink(){
-	var couplingParent1 = tree.nodes(root).filter(function(d) {
-            return d['name'] === 'DTLS-SRTPAB';
-        })[0];
-	var couplingChild1 = tree.nodes(root).filter(function(d) {
-            return d['name'] === 'authAB';
-        })[0];
-	
-	multiParents = [{
-                    parent: couplingParent1,
-                    child: couplingChild1
-                }];
-		
-	multiParents.forEach(function(multiPair) {
-            svg.append("path", "g")
-            .attr("class", "additionalParentLink")
-                .attr("d", function() {
-                    var oTarget = {
-                        x: multiPair.parent.x,
-                        y: multiPair.parent.y
-                    };
-                    var oSource = {
-                        x: multiPair.child.x,
-                        y: multiPair.child.y
-                    };
-					//TRANSFORM 
-					
-					oSource.y -= oSource.x
-					
-                    /*if (multiPair.child.depth === multiPair.couplingParent1.depth) {
-                        return "M" + oSource.y + " " + oSource.x + " L" + (oTarget.y + ((Math.abs((oTarget.x - oSource.x))) * 0.25)) + " " + oTarget.x + " " + oTarget.y + " " + oTarget.x;
-                    }*/
-                    return diagonal({
-                        source: oSource,
-                        target: oTarget
-                    });
-                });
-        });	
-}
-
-function translateNode(d){
-	return "translate("+ d.rNorm + "," + d.rNorm + ")"}
-function translateOpNode(d){
-	return "translate("+ (Math.sqrt((d.rNorm*d.rNorm)/2)) + "," + (Math.sqrt((d.rNorm*d.rNorm)/2)) + ")"}
-function translateValue(d){
-	return "translate("+ (Math.sqrt((d.rNorm*d.rNorm)/2) + rOperator*2) + "," + (Math.sqrt((d.rNorm*d.rNorm)/2)) + ")"}
-
-//updateTrust(trustModel[0], 1)
 </script>
-	
+
+<script src="public/javascripts/trustViz.js"></script>
+
   </body>
 </html>
